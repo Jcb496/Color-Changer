@@ -1,30 +1,5 @@
-// When popup loads, get current colors from the page
-window.addEventListener('DOMContentLoaded', () => {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    chrome.scripting.executeScript({
-      target: { tabId: tabs[0].id },
-      func: () => {
-        const bodyStyles = window.getComputedStyle(document.body);
-        const link = document.querySelector("a");
-        const linkColor = link ? window.getComputedStyle(link).color : "#000000";
-        return {
-          bgColor: bodyStyles.backgroundColor,
-          textColor: bodyStyles.color,
-          linkColor: linkColor
-        };
-      }
-    }, (results) => {
-      if (results && results[0] && results[0].result) {
-        const { bgColor, textColor, linkColor } = results[0].result;
-        document.getElementById('bgColor').value = rgbToHex(bgColor);
-        document.getElementById('textColor').value = rgbToHex(textColor);
-        document.getElementById('linkColor').value = rgbToHex(linkColor);
-      }
-    });
-  });
-});
 
-// Helper to convert RGB to HEX
+// Convert RGB to HEX
 function rgbToHex(rgb) {
   const result = rgb.match(/\d+/g);
   if (!result) return "#000000";
@@ -34,16 +9,37 @@ function rgbToHex(rgb) {
   }).join('');
 }
 
+// Load current page colors when popup opens
+window.addEventListener('DOMContentLoaded', () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const url = new URL(tabs[0].url);
+    const domain = url.hostname;
+
+    chrome.storage.local.get([domain], (result) => {
+      const colors = result[domain];
+      if (colors) {
+        document.getElementById('bgColor').value = colors.bgColor;
+        document.getElementById('textColor').value = colors.textColor;
+        document.getElementById('linkColor').value = colors.linkColor;
+      }
+    });
+  });
+});
+
+// Apply button logic
 document.getElementById('apply').addEventListener('click', () => {
   const bgColor = document.getElementById('bgColor').value;
   const textColor = document.getElementById('textColor').value;
   const linkColor = document.getElementById('linkColor').value;
 
-  // Save colors to Chrome storage
-  chrome.storage.local.set({ bgColor, textColor, linkColor });
-
-  // Apply colors to the current tab
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const url = new URL(tabs[0].url);
+    const domain = url.hostname;
+
+    chrome.storage.local.set({
+      [domain]: { bgColor, textColor, linkColor }
+    });
+
     chrome.scripting.executeScript({
       target: { tabId: tabs[0].id },
       func: applyColors,
@@ -52,13 +48,13 @@ document.getElementById('apply').addEventListener('click', () => {
   });
 });
 
-document.getElementById("reset").addEventListener("click", () => {
-  // Clear saved colors
-  chrome.storage.local.remove(["bgColor", "textColor", "linkColor"], () => {
-    console.log("Color settings cleared.");
+// Reset button logic
+document.getElementById('reset').addEventListener('click', () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const url = new URL(tabs[0].url);
+    const domain = url.hostname;
 
-    // Reset styles on the current tab
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    chrome.storage.local.remove(domain, () => {
       chrome.scripting.executeScript({
         target: { tabId: tabs[0].id },
         func: resetColors
@@ -67,6 +63,7 @@ document.getElementById("reset").addEventListener("click", () => {
   });
 });
 
+// Function injected into the page to apply styles
 function applyColors(bg, text, link) {
   function setStyles() {
     document.body.style.setProperty("background-color", bg, "important");
@@ -80,51 +77,56 @@ function applyColors(bg, text, link) {
     document.querySelectorAll("a").forEach(a => {
       a.style.setProperty("color", link, "important");
     });
-  }
-  
-document.querySelectorAll("iframe").forEach(iframe => {
-  try {
-    const doc = iframe.contentDocument || iframe.contentWindow.document;
-    doc.body.style.setProperty("background-color", bg, "important");
-    doc.body.style.setProperty("color", text, "important");
-    doc.querySelectorAll("*").forEach(el => {
-      el.style.setProperty("background-color", bg, "important");
-      el.style.setProperty("color", text, "important");
-    });
-    doc.querySelectorAll("a").forEach(a => {
-      a.style.setProperty("color", link, "important");
-    });
-  } catch (e) {
-    console.warn("Could not access iframe:", e);
-  }
-});
 
-  // Initial style application
+    document.querySelectorAll("iframe").forEach(iframe => {
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        doc.body.style.setProperty("background-color", bg, "important");
+        doc.body.style.setProperty("color", text, "important");
+        doc.querySelectorAll("*").forEach(el => {
+          el.style.setProperty("background-color", bg, "important");
+          el.style.setProperty("color", text, "important");
+        });
+        doc.querySelectorAll("a").forEach(a => {
+          a.style.setProperty("color", link, "important");
+        });
+      } catch (e) {
+        console.warn("Could not access iframe:", e);
+      }
+    });
+  }
+
   setStyles();
 
-  // Watch for DOM changes and reapply styles
-  const observer = new MutationObserver(() => {
+  if (window.colorObserver) {
+    window.colorObserver.disconnect();
+  }
+
+  window.colorObserver = new MutationObserver(() => {
     setStyles();
   });
 
-  observer.observe(document.body, {
+  window.colorObserver.observe(document.body, {
     childList: true,
     subtree: true
   });
 }
 
+// Function injected into the page to reset styles
 function resetColors() {
-  // Reset body styles
+  if (window.colorObserver) {
+    window.colorObserver.disconnect();
+    window.colorObserver = null;
+  }
+
   document.body.style.backgroundColor = "";
   document.body.style.color = "";
 
-  // Reset all elements
   document.querySelectorAll("*").forEach(el => {
     el.style.backgroundColor = "";
     el.style.color = "";
   });
 
-  // Reset link colors
   document.querySelectorAll("a").forEach(a => {
     a.style.color = "";
   });
