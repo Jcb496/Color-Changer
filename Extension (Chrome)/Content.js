@@ -1,6 +1,10 @@
-chrome.storage.local.get(["bgColor", "textColor", "linkColor"], ({ bgColor, textColor, linkColor }) => {
-  if (bgColor && textColor && linkColor) {
-    applyColors(bgColor, textColor, linkColor);
+
+const domain = window.location.hostname;
+
+chrome.storage.local.get([domain], (result) => {
+  const colors = result[domain];
+  if (colors) {
+    applyColors(colors.bgColor, colors.textColor, colors.linkColor);
   }
 });
 
@@ -17,28 +21,27 @@ function applyColors(bg, text, link) {
     document.querySelectorAll("a").forEach(a => {
       a.style.setProperty("color", link, "important");
     });
-  }
-document.querySelectorAll("iframe").forEach(iframe => {
-  try {
-    const doc = iframe.contentDocument || iframe.contentWindow.document;
-    doc.body.style.setProperty("background-color", bg, "important");
-    doc.body.style.setProperty("color", text, "important");
-    doc.querySelectorAll("*").forEach(el => {
-      el.style.setProperty("background-color", bg, "important");
-      el.style.setProperty("color", text, "important");
-    });
-    doc.querySelectorAll("a").forEach(a => {
-      a.style.setProperty("color", link, "important");
-    });
-  } catch (e) {
-    console.warn("Could not access iframe:", e);
-  }
-});
 
-  // Initial style application
+    document.querySelectorAll("iframe").forEach(iframe => {
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        doc.body.style.setProperty("background-color", bg, "important");
+        doc.body.style.setProperty("color", text, "important");
+        doc.querySelectorAll("*").forEach(el => {
+          el.style.setProperty("background-color", bg, "important");
+          el.style.setProperty("color", text, "important");
+        });
+        doc.querySelectorAll("a").forEach(a => {
+          a.style.setProperty("color", link, "important");
+        });
+      } catch (e) {
+        console.warn("Could not access iframe:", e);
+      }
+    });
+  }
+
   setStyles();
 
-  // Watch for DOM changes and reapply styles
   const observer = new MutationObserver(() => {
     setStyles();
   });
@@ -47,4 +50,6 @@ document.querySelectorAll("iframe").forEach(iframe => {
     childList: true,
     subtree: true
   });
+
+  window.colorObserver = observer;
 }
